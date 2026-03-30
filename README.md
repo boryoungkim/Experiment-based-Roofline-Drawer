@@ -7,3 +7,6 @@ It supports both **Spec-based** theoretical rooflines and **Experiment-based** e
 - Draw Roofline models using hardware specifications (TFLOPS, GB/s).
 - Measure and plot actual hardware performance using micro-benchmarks.
 - Compare your custom kernels against the hardware's peak.
+
+## Working Docs
+- Roofline Model Basics: https://docs.google.com/document/d/1uz4m0aX36uUriByhQ4vWar1nk-JponozvvGUXU_GdpE/edit?tab=t.0
