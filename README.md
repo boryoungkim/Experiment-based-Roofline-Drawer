@@ -8,7 +8,7 @@ It supports both **Spec-based** theoretical rooflines and **Experiment-based** e
 - Measure and plot actual hardware performance using micro-benchmarks.
 - Compare your custom kernels against the hardware's peak.
 
-- 메모리 트래킹: L1, L2, L3 캐시 사이즈 측정
+- Cache size estimation: Experimentally measure L1, L2, L3 size
 
 
 ## Working Docs
