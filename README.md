@@ -8,5 +8,10 @@ It supports both **Spec-based** theoretical rooflines and **Experiment-based** e
 - Measure and plot actual hardware performance using micro-benchmarks.
 - Compare your custom kernels against the hardware's peak.
 
+- 메모리 트래킹: L1, L2, L3 캐시 사이즈 측정
+
+
 ## Working Docs
-- Roofline Model Basics: https://docs.google.com/document/d/1uz4m0aX36uUriByhQ4vWar1nk-JponozvvGUXU_GdpE/edit?tab=t.0
+- **[ Roofline Model Basics ]**: https://docs.google.com/document/d/1uz4m0aX36uUriByhQ4vWar1nk-JponozvvGUXU_GdpE/edit?tab=t.0
+
+- **[ HW Profiling Tool Collection ]**: https://docs.google.com/document/d/1lEWg12gvInNzhY4uPANddT7mrgAkPFMHj6JVoEY8BeE/edit?tab=t.0
