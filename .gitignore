@@ -1,0 +1,14 @@
+# Compiled binaries
+exp_drawer/hw_bench
+exp_drawer/npu_bench
+exp_drawer/npu_bench_multi
+exp_drawer/npu_bench_global4
+exp_drawer/npu_bench_global8
+exp_drawer/print_mxq_summary
+
+# Compiled model files
+exp_drawer/*.mxq
+
+# Reference docs (PDFs, Word)
+*.pdf
+*.docx
