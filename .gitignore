@@ -12,3 +12,6 @@ exp_drawer/*.mxq
 # Reference docs (PDFs, Word)
 *.pdf
 *.docx
+
+# Output charts
+spec_drawer/*.png
