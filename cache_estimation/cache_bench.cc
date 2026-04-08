@@ -9,6 +9,7 @@
 
 void test_latency(size_t size_kb) {
     // 1. 데이터 준비 (4바이트 int 대신 8바이트 pointer-sized uint64_t 권장)
+    //크기 정해놓고 그만큼 할당하는 방법: element들은 다 size_t로 하고, count = size/sizeof(size_t)
     size_t count = (size_kb * 1024) / sizeof(size_t); //64bit 자료형 써서 iteration count 계산
     if (count == 0) count = 1; // 너무 작을 경우를 대비해서...!
     std::vector<size_t> arr(count);
@@ -30,6 +31,7 @@ void test_latency(size_t size_kb) {
     // 4. 워밍업 (캐시에 데이터 로드)
     size_t curr = 0;
     for ( size_t i = 0; i < count * 2; i++) curr = arr[curr]; //한번씩 다 read함 ==> 캐시에 다 올려놓고 시작
+    // 또는 curr_ptr = *curr_ptr;
 
     // 5. 실제 측정
     const size_t iterations = 100'000'000; // 1억 번 반복
@@ -38,6 +40,7 @@ void test_latency(size_t size_kb) {
     
     for ( size_t i = 0; i < iterations; i++) {
         curr = arr[curr]; // 핵심: 포인터 체이싱
+        //또는 curr_ptr = *curr_ptr;
     }
     
     // curr 값을 강제로 사용하게 만들어 컴파일러 최적화(루프 삭제) 방지

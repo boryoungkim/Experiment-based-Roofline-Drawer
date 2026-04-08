@@ -9,6 +9,7 @@ It supports both **Spec-based** theoretical rooflines and **Experiment-based** e
 - Compare your custom kernels against the hardware's peak.
 
 - Cache size estimation: Experimentally measure L1, L2, L3 size
+- Stride access 실험 - 결과 propfiler에 넣으면 어디서 bank conflict나는지 등 확인할 수 있도록 
 
 
 ## Working Docs

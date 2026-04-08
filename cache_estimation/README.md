@@ -5,7 +5,7 @@
     ```bash
     g++ -O3 cache_bench.cc -o cache_bench
     ./cache_bench > data.txt
-    python3 log_graph.py
+    python3 dataviz.py
 
 ## example result: CPU
 ![./memory_latency_graph.png](memory_latency_graph.png)
