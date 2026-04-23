@@ -52,32 +52,28 @@ NPU_BANDWIDTH_GBS_SPEC = 66.7        # GB/s spec
 #   color       : line color on the roofline chart
 NPU_MODES = [
     {
-        "name":        "base",
+        "name":        "single",
         "bench_bin":   os.path.join(_DIR, "npu_bench"),
         "compute_mxq": os.path.join(_DIR, "compute_bench.mxq"),
         "bw_mxq":      os.path.join(_DIR, "bandwidth_bench.mxq"),
-        "color":       "#d62728",
     },
     {
         "name":        "global4",
         "bench_bin":   os.path.join(_DIR, "npu_bench_global4"),
         "compute_mxq": os.path.join(_DIR, "compute_bench_global4.mxq"),
         "bw_mxq":      os.path.join(_DIR, "bandwidth_bench_global4.mxq"),
-        "color":       "#ff7f0e",
     },
     {
         "name":        "global8",
         "bench_bin":   os.path.join(_DIR, "npu_bench_global8"),
         "compute_mxq": os.path.join(_DIR, "compute_bench_global8.mxq"),
         "bw_mxq":      os.path.join(_DIR, "bandwidth_bench_global8.mxq"),
-        "color":       "#9467bd",
     },
     {
         "name":        "multi",
         "bench_bin":   os.path.join(_DIR, "npu_bench_multi"),
         "compute_mxq": os.path.join(_DIR, "compute_bench_multi.mxq"),
         "bw_mxq":      os.path.join(_DIR, "bandwidth_bench_multi.mxq"),
-        "color":       "#8c564b",
     },
 ]
 
@@ -143,8 +139,7 @@ def measure_zoo_model(model_name, infer_mode, num_runs):
         print(f"  [skip] npu_bench_zoo.py not found at {zoo_script}")
         return None
 
-    # "base" in NPU_MODES = single-core mode; map to zoo's "single"
-    zoo_mode = "single" if infer_mode == "base" else infer_mode
+    zoo_mode = infer_mode
     cmd = [_ZOO_PYTHON, zoo_script,
            "--model", model_name, "--mode", zoo_mode, "--runs", str(num_runs)]
     print(f"Running zoo benchmark: {model_name} [{infer_mode}] ...")
@@ -272,24 +267,32 @@ def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
     #                 xytext=(ridge * 2.5, peak * 0.6),
     #                 fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
-    # --- 4. ACTUAL MODEL POINTS (모드별 색상, 모델별 마커) ---
-    _markers = ["o", "s", "D", "^", "v", "P", "*", "X", "p", "h"]
-    _model_to_marker = {}   # base_name -> marker
-    _mode_to_color   = {}   # mode_name -> color
+    # --- 4. ACTUAL MODEL POINTS (모델별 색상, 모드별 마커) ---
+    _tab10 = plt.get_cmap("tab10").colors
+    _mode_to_marker = {
+        "single":  "o",
+        "global4": "s",
+        "global8": "D",
+        "multi":   "^",
+    }
+    _model_to_color = {}   # base_name -> color (tab10 순서대로 할당)
+    _seen_modes     = {}   # mode_name -> marker (등장 순서 보존용)
+
     for m in npu_models:
         base = m.get("base_name", m.get("name", "unknown"))
-        if base not in _model_to_marker:
-            _model_to_marker[base] = _markers[len(_model_to_marker) % len(_markers)]
+        if base not in _model_to_color:
+            _model_to_color[base] = _tab10[len(_model_to_color) % len(_tab10)]
         mode_name = m.get("mode_name", "")
-        if mode_name and mode_name not in _mode_to_color:
-            _mode_to_color[mode_name] = m["color"]
+        marker = _mode_to_marker.get(mode_name, "o")
+        if mode_name and mode_name not in _seen_modes:
+            _seen_modes[mode_name] = marker
 
         ax.scatter(m["ai"], m["perf"],
-                   s=80, marker=_model_to_marker[base],
-                   color=m.get("color", "#FFD700"),
+                   s=80, marker=marker,
+                   color=_model_to_color[base],
                    edgecolors="#888888", linewidths=0.5, zorder=15)
 
-    # --- Legend (compact: roofline + model shapes + mode colors) ---
+    # --- Legend (roofline + model colors + mode markers) ---
     legend_handles = []
 
     # Spec roofline
@@ -299,22 +302,22 @@ def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
     ))
     legend_handles.append(Patch(color="none", label=""))  # spacer
 
-    # Model family → marker shape
-    legend_handles.append(Patch(color="none", label="── Models (shape) ──"))
-    for model_name, marker in _model_to_marker.items():
-        legend_handles.append(Line2D(
-            [0], [0], linestyle="none", marker=marker,
-            color="#888888", markerfacecolor="#bbbbbb",
-            markersize=8, markeredgewidth=0.5,
-            label=model_name,
-        ))
+    # Model family → color
+    legend_handles.append(Patch(color="none", label="── Models (color) ──"))
+    for model_name, color in _model_to_color.items():
+        legend_handles.append(Patch(facecolor=color, edgecolor="#888888",
+                                    linewidth=0.5, label=model_name))
     legend_handles.append(Patch(color="none", label=""))  # spacer
 
-    # Inference mode → color
-    legend_handles.append(Patch(color="none", label="── Modes (color) ──"))
-    for mode_name, color in _mode_to_color.items():
-        legend_handles.append(Patch(facecolor=color, edgecolor="#888888", linewidth=0.5,
-                                    label=mode_name))
+    # Inference mode → marker shape
+    legend_handles.append(Patch(color="none", label="── Modes (shape) ──"))
+    for mode_name, marker in _seen_modes.items():
+        legend_handles.append(Line2D(
+            [0], [0], linestyle="none", marker=marker,
+            color="#444444", markerfacecolor="#aaaaaa",
+            markersize=8, markeredgewidth=0.8,
+            label=mode_name,
+        ))
 
     # --- Formatting ---
     ax.set_xscale("log")
@@ -430,7 +433,6 @@ if __name__ == "__main__":
                     "mode_name": mode["name"],
                     "perf":      achieved_gops,
                     "ai":        ai,
-                    "color":     mode["color"],
                 })
                 print(f"  -> Added '{label}' to plot.")
 
