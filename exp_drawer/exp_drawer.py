@@ -230,82 +230,101 @@ def measure_npu_model(mxq_path, num_runs, model_gops, model_gbytes, bench_bin=No
 def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
                    npu_measured_modes=None,
                    filename="roofline_experimental.png"):
-    """
-    npu_measured_modes: list of dicts with keys name, peak_gops, bw_gbs, color.
-                        Each entry draws one measured NPU roofline.
-    """
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
     fig, ax = plt.subplots(figsize=(14, 9))
     x = np.logspace(-2, 4, 1000)
 
-    # --- 1. CPU Roofline ---
-    y_cpu = np.minimum(cpu_peak, x * cpu_bw)
-    ridge_cpu = cpu_peak / cpu_bw
-    ax.plot(x, y_cpu, linewidth=4.0, linestyle="-", color="#1f77b4", alpha=1.0,
-            label=f"CPU (measured)  {cpu_peak:.0f} GFLOPS | {cpu_bw:.1f} GB/s")
-
-    # CPU Ridge Point
-    ax.scatter([ridge_cpu], [cpu_peak], color="white", edgecolors="#1f77b4", s=60, marker="o", linewidths=2, zorder=5)
-    ax.annotate(f"Ridge: {ridge_cpu:.1f} ops/B",
-                xy=(ridge_cpu, cpu_peak),
-                xytext=(ridge_cpu * 2.5, cpu_peak * 0.6),
-                fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
+    # --- 1. CPU Roofline (주석 처리 — 차트에 표시 안 함) ---
+    # y_cpu = np.minimum(cpu_peak, x * cpu_bw)
+    # ridge_cpu = cpu_peak / cpu_bw
+    # ax.plot(x, y_cpu, linewidth=4.0, linestyle="-", color="#1f77b4", alpha=1.0,
+    #         label=f"CPU (measured)  {cpu_peak:.0f} GFLOPS | {cpu_bw:.1f} GB/s")
+    # ax.scatter([ridge_cpu], [cpu_peak], color="white", edgecolors="#1f77b4", s=60, marker="o", linewidths=2, zorder=5)
+    # ax.annotate(f"Ridge: {ridge_cpu:.1f} ops/B", xy=(ridge_cpu, cpu_peak),
+    #             xytext=(ridge_cpu * 2.5, cpu_peak * 0.6),
+    #             fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
     # --- 2. NPU Spec Roofline (dashed) ---
     y_npu_spec = np.minimum(NPU_PEAK_GOPS_SPEC, x * NPU_BANDWIDTH_GBS_SPEC)
     ridge_npu_spec = NPU_PEAK_GOPS_SPEC / NPU_BANDWIDTH_GBS_SPEC
-    ax.plot(x, y_npu_spec, linewidth=1.5, linestyle="--", color="red", dashes=(2, 2), alpha=0.8,
-            label=f"MBLT Aries NPU (spec)  {NPU_PEAK_GOPS_SPEC:.0f} GOPS | {NPU_BANDWIDTH_GBS_SPEC:.1f} GB/s")
-
-    ax.scatter([ridge_npu_spec], [NPU_PEAK_GOPS_SPEC], color="white", edgecolors="red", s=60, marker="o", linewidths=2, zorder=5)
+    ax.plot(x, y_npu_spec, linewidth=1.5, linestyle="--", color="red", dashes=(2, 2), alpha=0.8)
+    ax.scatter([ridge_npu_spec], [NPU_PEAK_GOPS_SPEC], color="white", edgecolors="red",
+               s=60, marker="o", linewidths=2, zorder=5)
     ax.annotate(f"Ridge: {ridge_npu_spec:.1f} ops/B",
                 xy=(ridge_npu_spec, NPU_PEAK_GOPS_SPEC),
                 xytext=(ridge_npu_spec * 2.5, NPU_PEAK_GOPS_SPEC * 1.5),
                 fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
-    # --- 3. NPU Measured Rooflines (one per running mode) ---
-    for mode in (npu_measured_modes or []):
-        peak  = mode["peak_gops"]
-        bw    = mode["bw_gbs"]
-        color = mode["color"]
-        name  = mode["name"]
-        y_meas = np.minimum(peak, x * bw)
-        ridge  = peak / bw
-        ax.plot(x, y_meas, linewidth=4.0, linestyle="-", color=color, alpha=1.0,
-                label=f"MBLT Aries NPU ({name}, measured)  {peak:.0f} GOPS | {bw:.1f} GB/s")
-        ax.scatter([ridge], [peak], color="white", edgecolors=color, s=60, marker="o", linewidths=2, zorder=5)
-        ax.annotate(f"Ridge: {ridge:.1f} ops/B",
-                    xy=(ridge, peak),
-                    xytext=(ridge * 2.5, peak * 0.6),
-                    fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
+    # --- 3. NPU Measured Rooflines (주석 처리 — 차트에 표시 안 함) ---
+    # for mode in (npu_measured_modes or []):
+    #     peak  = mode["peak_gops"]
+    #     bw    = mode["bw_gbs"]
+    #     color = mode["color"]
+    #     name  = mode["name"]
+    #     y_meas = np.minimum(peak, x * bw)
+    #     ridge  = peak / bw
+    #     ax.plot(x, y_meas, linewidth=4.0, linestyle="-", color=color, alpha=1.0,
+    #             label=f"MBLT Aries NPU ({name}, measured)  {peak:.0f} GOPS | {bw:.1f} GB/s")
+    #     ax.scatter([ridge], [peak], color="white", edgecolors=color, s=60, marker="o", linewidths=2, zorder=5)
+    #     ax.annotate(f"Ridge: {ridge:.1f} ops/B", xy=(ridge, peak),
+    #                 xytext=(ridge * 2.5, peak * 0.6),
+    #                 fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
     # --- 4. ACTUAL MODEL POINTS (모드별 색상, 모델별 마커) ---
     _markers = ["o", "s", "D", "^", "v", "P", "*", "X"]
-    _seen_models = {}
+    _model_to_marker = {}   # base_name -> marker
+    _mode_to_color   = {}   # mode_name -> color
     for m in npu_models:
-        base = m.get("base_name", m["name"])
-        if base not in _seen_models:
-            _seen_models[base] = _markers[len(_seen_models) % len(_markers)]
-        marker = _seen_models[base]
-        color  = m.get("color", "#FFD700")
-        ax.scatter(m["ai"], m["perf"],
-                   label=f"NPU: {m['name']}  ({m['perf']:.0f} GOPS)",
-                   s=250, marker=marker, color=color, edgecolors="black", linewidths=1.5, zorder=15)
+        base = m.get("base_name", m.get("name", "unknown"))
+        if base not in _model_to_marker:
+            _model_to_marker[base] = _markers[len(_model_to_marker) % len(_markers)]
+        mode_name = m.get("mode_name", "")
+        if mode_name and mode_name not in _mode_to_color:
+            _mode_to_color[mode_name] = m["color"]
 
-    # --- CPU workload points (optional) ---
-    if cpu_models:
-        for m in cpu_models:
-            ax.scatter(m["ai"], m["perf"],
-                       label=f"CPU: {m['name']}  ({m['perf']:.0f} GFLOPS)",
-                       s=200, marker="o", color="#2ca02c", edgecolors="black", zorder=15)
+        ax.scatter(m["ai"], m["perf"],
+                   s=80, marker=_model_to_marker[base],
+                   color=m.get("color", "#FFD700"),
+                   edgecolors="#888888", linewidths=0.5, zorder=15)
+
+    # --- Legend (compact: roofline + model shapes + mode colors) ---
+    legend_handles = []
+
+    # Spec roofline
+    legend_handles.append(Line2D(
+        [0], [0], linestyle="--", color="red", linewidth=1.5,
+        label=f"MBLT Aries NPU (spec)  {NPU_PEAK_GOPS_SPEC:.0f} TOPS | {NPU_BANDWIDTH_GBS_SPEC:.1f} GB/s",
+    ))
+    legend_handles.append(Patch(color="none", label=""))  # spacer
+
+    # Model family → marker shape
+    legend_handles.append(Patch(color="none", label="── Models (shape) ──"))
+    for model_name, marker in _model_to_marker.items():
+        legend_handles.append(Line2D(
+            [0], [0], linestyle="none", marker=marker,
+            color="#888888", markerfacecolor="#bbbbbb",
+            markersize=8, markeredgewidth=0.5,
+            label=model_name,
+        ))
+    legend_handles.append(Patch(color="none", label=""))  # spacer
+
+    # Inference mode → color
+    legend_handles.append(Patch(color="none", label="── Modes (color) ──"))
+    for mode_name, color in _mode_to_color.items():
+        legend_handles.append(Patch(facecolor=color, edgecolor="#888888", linewidth=0.5,
+                                    label=mode_name))
 
     # --- Formatting ---
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Arithmetic Intensity (ops/Byte)", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Performance (GOPS / GFLOPS)", fontsize=12, fontweight="bold")
-    ax.set_title("Experimental Roofline: CPU vs NPU Performance", fontsize=15, pad=20)
+    ax.set_ylabel("Performance (GOPS)", fontsize=12, fontweight="bold")
+    ax.set_title("Experimental Roofline: MBLT Aries NPU", fontsize=15, pad=20)
     ax.grid(True, which="both", ls="--", alpha=0.3)
-    ax.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=10, frameon=True, shadow=True)
+    ax.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(1, 1),
+              fontsize=9.5, frameon=True, shadow=True)
 
     # --- 파일명 중복 방지 로직 ---
     base, ext = os.path.splitext(filename)
@@ -408,6 +427,7 @@ if __name__ == "__main__":
                 all_npu_points.append({
                     "name":      label,
                     "base_name": cfg["name"],
+                    "mode_name": mode["name"],
                     "perf":      achieved_gops,
                     "ai":        ai,
                     "color":     mode["color"],
