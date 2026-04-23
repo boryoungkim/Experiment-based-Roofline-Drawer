@@ -30,9 +30,8 @@ CPU_BENCH_SRC = os.path.join(_DIR, "hw_bench.cc")
 CPU_BENCH_BIN = os.path.join(_DIR, "hw_bench")
 
 # ---------------------------------------------------------------------------
-# NPU benchmark path (build separately: make -f Makefile.npu)
+# NPU benchmark paths (build separately: make -f Makefile.npu)
 # ---------------------------------------------------------------------------
-NPU_BENCH_BIN = os.path.join(_DIR, "npu_bench")
 
 # ---------------------------------------------------------------------------
 # NPU hardware roof values.
@@ -40,9 +39,42 @@ NPU_BENCH_BIN = os.path.join(_DIR, "npu_bench")
 NPU_PEAK_GOPS_SPEC     = 80 * 1000   # 80 TOPS spec
 NPU_BANDWIDTH_GBS_SPEC = 66.7        # GB/s spec
 
-# Paths to compiled benchmark models (copy from workstation after compile_bench.py)
-NPU_COMPUTE_BENCH_MXQ   = os.path.join(_DIR, "compute_bench.mxq")
-NPU_BANDWIDTH_BENCH_MXQ = os.path.join(_DIR, "bandwidth_bench.mxq")
+# All running modes to benchmark. Each entry:
+#   name        : label for the chart
+#   bench_bin   : compiled runner binary
+#   compute_mxq : compute-bound synthetic model
+#   bw_mxq      : bandwidth-bound synthetic model
+#   color       : line color on the roofline chart
+NPU_MODES = [
+    {
+        "name":        "base",
+        "bench_bin":   os.path.join(_DIR, "npu_bench"),
+        "compute_mxq": os.path.join(_DIR, "compute_bench.mxq"),
+        "bw_mxq":      os.path.join(_DIR, "bandwidth_bench.mxq"),
+        "color":       "#d62728",
+    },
+    {
+        "name":        "global4",
+        "bench_bin":   os.path.join(_DIR, "npu_bench_global4"),
+        "compute_mxq": os.path.join(_DIR, "compute_bench_global4.mxq"),
+        "bw_mxq":      os.path.join(_DIR, "bandwidth_bench_global4.mxq"),
+        "color":       "#ff7f0e",
+    },
+    {
+        "name":        "global8",
+        "bench_bin":   os.path.join(_DIR, "npu_bench_global8"),
+        "compute_mxq": os.path.join(_DIR, "compute_bench_global8.mxq"),
+        "bw_mxq":      os.path.join(_DIR, "bandwidth_bench_global8.mxq"),
+        "color":       "#9467bd",
+    },
+    {
+        "name":        "multi",
+        "bench_bin":   os.path.join(_DIR, "npu_bench_multi"),
+        "compute_mxq": os.path.join(_DIR, "compute_bench_multi.mxq"),
+        "bw_mxq":      os.path.join(_DIR, "bandwidth_bench_multi.mxq"),
+        "color":       "#8c564b",
+    },
+]
 
 # Known ops/bytes for the synthetic benchmark models (from create_bench_onnx.py)
 # compute_bench: 8x 1x1 Conv [1, 1024, 64, 64]
@@ -96,37 +128,46 @@ def measure_cpu():
 # NPU benchmark helpers
 # ===========================================================================
 
-def measure_npu_model(mxq_path, num_runs, model_gops, model_gbytes):
+def measure_npu_model(mxq_path, num_runs, model_gops, model_gbytes, bench_bin=None):
     """
-    Runs npu_bench on a single .mxq model.
-    Returns (achieved_gops, arithmetic_intensity), or None if unavailable.
+    Runs a npu_bench binary on a single .mxq model.
+    Returns (achieved_gops, arithmetic_intensity), or None if unavailable/error.
     """
-    if not os.path.exists(NPU_BENCH_BIN):
-        print(f"  [skip] {NPU_BENCH_BIN} not found — build with: make -f Makefile.npu")
+    if bench_bin is None:
+        bench_bin = os.path.join(_DIR, "npu_bench")
+    if not os.path.exists(bench_bin):
+        print(f"  [skip] {bench_bin} not found — build with: make -f Makefile.npu")
         return None
     if not os.path.exists(mxq_path):
         print(f"  [skip] model file not found: {mxq_path}")
         return None
-        
-    cmd = [NPU_BENCH_BIN, mxq_path, str(num_runs),
+
+    cmd = [bench_bin, mxq_path, str(num_runs),
            str(model_gops), str(model_gbytes)]
-    print(f"Running NPU benchmark: {os.path.basename(mxq_path)} ...")
-    
+    print(f"Running NPU benchmark: {os.path.basename(mxq_path)} ({os.path.basename(bench_bin)}) ...")
+
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"  [skip] npu_bench failed:\n{r.stdout}{r.stderr}")
+        print(f"  [skip] {os.path.basename(bench_bin)} failed:\n{r.stdout}{r.stderr}")
         return None
-        
+
     vals = {}
     for line in r.stdout.splitlines():
         parts = line.split()
         if len(parts) == 2:
-            vals[parts[0]] = float(parts[1])
-            
+            try:
+                vals[parts[0]] = float(parts[1])
+            except ValueError:
+                pass
+
+    if "achieved_gops" not in vals or "arithmetic_intensity" not in vals:
+        print(f"  [skip] unexpected output from {os.path.basename(bench_bin)}: {r.stdout!r}")
+        return None
+
     print(f"  avg latency : {vals.get('avg_latency_ms', 0):.2f} ms")
     print(f"  achieved    : {vals.get('achieved_gops', 0):.0f} GOPS")
     print(f"  AI (ops/B)  : {vals.get('arithmetic_intensity', 0):.1f}")
-    
+
     return vals["achieved_gops"], vals["arithmetic_intensity"]
 
 
@@ -135,8 +176,12 @@ def measure_npu_model(mxq_path, num_runs, model_gops, model_gbytes):
 # ===========================================================================
 
 def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
-                   npu_peak_gops=None, npu_bw_gbs=None,
+                   npu_measured_modes=None,
                    filename="roofline_experimental.png"):
+    """
+    npu_measured_modes: list of dicts with keys name, peak_gops, bw_gbs, color.
+                        Each entry draws one measured NPU roofline.
+    """
     fig, ax = plt.subplots(figsize=(14, 9))
     x = np.logspace(-2, 4, 1000)
 
@@ -145,39 +190,40 @@ def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
     ridge_cpu = cpu_peak / cpu_bw
     ax.plot(x, y_cpu, linewidth=4.0, linestyle="-", color="#1f77b4", alpha=1.0,
             label=f"CPU (measured)  {cpu_peak:.0f} GFLOPS | {cpu_bw:.1f} GB/s")
-    
-    # CPU Ridge Point (bold 제거)
+
+    # CPU Ridge Point
     ax.scatter([ridge_cpu], [cpu_peak], color="white", edgecolors="#1f77b4", s=60, marker="o", linewidths=2, zorder=5)
     ax.annotate(f"Ridge: {ridge_cpu:.1f} ops/B",
                 xy=(ridge_cpu, cpu_peak),
                 xytext=(ridge_cpu * 2.5, cpu_peak * 0.6),
                 fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
-    # --- 2. NPU Spec Roofline (촘촘한 빨간 점선) ---
+    # --- 2. NPU Spec Roofline (dashed) ---
     y_npu_spec = np.minimum(NPU_PEAK_GOPS_SPEC, x * NPU_BANDWIDTH_GBS_SPEC)
     ridge_npu_spec = NPU_PEAK_GOPS_SPEC / NPU_BANDWIDTH_GBS_SPEC
     ax.plot(x, y_npu_spec, linewidth=1.5, linestyle="--", color="red", dashes=(2, 2), alpha=0.8,
             label=f"MBLT Aries NPU (spec)  {NPU_PEAK_GOPS_SPEC:.0f} GOPS | {NPU_BANDWIDTH_GBS_SPEC:.1f} GB/s")
-    
-    # NPU Spec Ridge Point (bold 제거, 텍스트가 겹치지 않게 살짝 위로 올림)
+
     ax.scatter([ridge_npu_spec], [NPU_PEAK_GOPS_SPEC], color="white", edgecolors="red", s=60, marker="o", linewidths=2, zorder=5)
     ax.annotate(f"Ridge: {ridge_npu_spec:.1f} ops/B",
                 xy=(ridge_npu_spec, NPU_PEAK_GOPS_SPEC),
                 xytext=(ridge_npu_spec * 2.5, NPU_PEAK_GOPS_SPEC * 1.5),
                 fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
-    # --- 3. NPU Measured Roofline & Ridge Point (진한 실선) ---
-    if npu_peak_gops is not None and npu_bw_gbs is not None:
-        y_npu_meas = np.minimum(npu_peak_gops, x * npu_bw_gbs)
-        ridge_npu_meas = npu_peak_gops / npu_bw_gbs
-        ax.plot(x, y_npu_meas, linewidth=4.0, linestyle="-", color="#d62728", alpha=1.0,
-                label=f"MBLT Aries NPU (measured)  {npu_peak_gops:.0f} GOPS | {npu_bw_gbs:.1f} GB/s")
-        
-        # NPU Measured Ridge Point (bold 제거)
-        ax.scatter([ridge_npu_meas], [npu_peak_gops], color="white", edgecolors="#d62728", s=60, marker="o", linewidths=2, zorder=5)
-        ax.annotate(f"Ridge: {ridge_npu_meas:.1f} ops/B",
-                    xy=(ridge_npu_meas, npu_peak_gops),
-                    xytext=(ridge_npu_meas * 2.5, npu_peak_gops * 0.6),
+    # --- 3. NPU Measured Rooflines (one per running mode) ---
+    for mode in (npu_measured_modes or []):
+        peak  = mode["peak_gops"]
+        bw    = mode["bw_gbs"]
+        color = mode["color"]
+        name  = mode["name"]
+        y_meas = np.minimum(peak, x * bw)
+        ridge  = peak / bw
+        ax.plot(x, y_meas, linewidth=4.0, linestyle="-", color=color, alpha=1.0,
+                label=f"MBLT Aries NPU ({name}, measured)  {peak:.0f} GOPS | {bw:.1f} GB/s")
+        ax.scatter([ridge], [peak], color="white", edgecolors=color, s=60, marker="o", linewidths=2, zorder=5)
+        ax.annotate(f"Ridge: {ridge:.1f} ops/B",
+                    xy=(ridge, peak),
+                    xytext=(ridge * 2.5, peak * 0.6),
                     fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
     # --- 4. ACTUAL MODEL POINTS (금색 동그라미) ---
@@ -240,25 +286,38 @@ if __name__ == "__main__":
     ]
 
     print("\n" + "="*50)
-    print(" 2. Measuring NPU Hardware Limits (Synthetic Benchmarks)")
+    print(" 2. Measuring NPU Hardware Limits (Synthetic Benchmarks, all modes)")
     print("="*50)
-    npu_peak_gops = None
-    npu_bw_gbs    = None
+    npu_measured_modes = []
 
-    result = measure_npu_model(NPU_COMPUTE_BENCH_MXQ,   200, COMPUTE_BENCH_GOPS,   COMPUTE_BENCH_GBYTES)
-    if result is not None:
-        npu_peak_gops = result[0]
-        print(f"[RESULT] NPU peak (measured): {npu_peak_gops:.0f} GOPS")
+    for mode in NPU_MODES:
+        print(f"\n--- Mode: {mode['name']} ---")
+        peak_gops = None
+        bw_gbs    = None
 
-    result = measure_npu_model(NPU_BANDWIDTH_BENCH_MXQ, 200, BANDWIDTH_BENCH_GOPS, BANDWIDTH_BENCH_GBYTES)
-    if result is not None:
-        achieved_gops_bw = result[0]
-        latency_s  = BANDWIDTH_BENCH_GOPS / achieved_gops_bw
-        npu_bw_gbs = BANDWIDTH_BENCH_GBYTES / latency_s
-        print(f"[RESULT] NPU bandwidth (measured): {npu_bw_gbs:.1f} GB/s")
+        result = measure_npu_model(mode["compute_mxq"], 200, COMPUTE_BENCH_GOPS, COMPUTE_BENCH_GBYTES,
+                                   bench_bin=mode["bench_bin"])
+        if result is not None:
+            peak_gops = result[0]
+            print(f"[RESULT] {mode['name']} peak (measured): {peak_gops:.0f} GOPS")
 
-    if npu_peak_gops is None or npu_bw_gbs is None:
-        print("[WARNING] NPU roof: using spec values (run compute_bench.mxq + bandwidth_bench.mxq to measure)")
+        result = measure_npu_model(mode["bw_mxq"], 200, BANDWIDTH_BENCH_GOPS, BANDWIDTH_BENCH_GBYTES,
+                                   bench_bin=mode["bench_bin"])
+        if result is not None:
+            achieved_gops_bw = result[0]
+            latency_s = BANDWIDTH_BENCH_GOPS / achieved_gops_bw
+            bw_gbs    = BANDWIDTH_BENCH_GBYTES / latency_s
+            print(f"[RESULT] {mode['name']} bandwidth (measured): {bw_gbs:.1f} GB/s")
+
+        if peak_gops is not None and bw_gbs is not None:
+            npu_measured_modes.append({
+                "name":      mode["name"],
+                "peak_gops": peak_gops,
+                "bw_gbs":    bw_gbs,
+                "color":     mode["color"],
+            })
+        else:
+            print(f"[WARNING] {mode['name']}: skipping roofline (incomplete measurement)")
 
     cpu_workloads = []
 
@@ -269,7 +328,8 @@ if __name__ == "__main__":
     
     for cfg in npu_model_configs:
         print(f"\n[Benchmarking] {cfg['name']} ...")
-        result = measure_npu_model(cfg["mxq"], cfg["runs"], cfg["gops"], cfg["gbytes"])
+        result = measure_npu_model(cfg["mxq"], cfg["runs"], cfg["gops"], cfg["gbytes"],
+                                   bench_bin=cfg.get("bench_bin"))
         if result is not None:
             achieved_gops, ai = result
             all_npu_points.append({"name": cfg["name"], "perf": achieved_gops, "ai": ai})
@@ -283,7 +343,7 @@ if __name__ == "__main__":
     print("="*50)
     if all_npu_points or cpu_workloads:
         plot_rooflines(cpu_peak, cpu_bw, all_npu_points, cpu_workloads,
-                       npu_peak_gops=npu_peak_gops, npu_bw_gbs=npu_bw_gbs,
+                       npu_measured_modes=npu_measured_modes,
                        filename="roofline_experimental.png")
     else:
         print("[SKIP] No valid model data points to plot.")
