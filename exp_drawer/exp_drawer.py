@@ -23,6 +23,11 @@ import numpy as np
 
 _DIR      = os.path.dirname(os.path.abspath(__file__))
 
+# Python interpreter that has mblt_model_zoo installed.
+# If exp_drawer.py is run from the mblt venv itself, sys.executable works fine.
+# Override here if needed.
+_ZOO_PYTHON = "/home/brkim/mblt/bin/python3"
+
 # ---------------------------------------------------------------------------
 # CPU benchmark paths
 # ---------------------------------------------------------------------------
@@ -128,6 +133,53 @@ def measure_cpu():
 # NPU benchmark helpers
 # ===========================================================================
 
+def measure_zoo_model(model_name, infer_mode, num_runs):
+    """
+    Runs npu_bench_zoo.py for a single (model, mode) pair.
+    Returns (achieved_gops, arithmetic_intensity), or None on failure.
+    """
+    zoo_script = os.path.join(_DIR, "npu_bench_zoo.py")
+    if not os.path.exists(zoo_script):
+        print(f"  [skip] npu_bench_zoo.py not found at {zoo_script}")
+        return None
+
+    # "base" in NPU_MODES = single-core mode; map to zoo's "single"
+    zoo_mode = "single" if infer_mode == "base" else infer_mode
+    cmd = [_ZOO_PYTHON, zoo_script,
+           "--model", model_name, "--mode", zoo_mode, "--runs", str(num_runs)]
+    print(f"Running zoo benchmark: {model_name} [{infer_mode}] ...")
+
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.stderr:
+        print(r.stderr.rstrip())
+    if r.returncode != 0:
+        print(f"  [skip] {model_name} [{infer_mode}] failed:\n{r.stdout}{r.stderr}")
+        return None
+
+    vals      = {}
+    str_vals  = {}
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            key = parts[0]
+            str_vals[key] = " ".join(parts[1:])
+            try:
+                vals[key] = float(parts[1])
+            except ValueError:
+                pass
+
+    if "achieved_gops" not in vals or "arithmetic_intensity" not in vals:
+        print(f"  [skip] unexpected output: {r.stdout!r}")
+        return None
+
+    precision = str_vals.get("precision", "?")
+    print(f"  avg latency : {vals.get('avg_latency_ms', 0):.2f} ms")
+    print(f"  achieved    : {vals.get('achieved_gops', 0):.0f} GOPS")
+    print(f"  AI (ops/B)  : {vals.get('arithmetic_intensity', 0):.1f}")
+    print(f"  precision   : {precision}")
+    return vals["achieved_gops"], vals["arithmetic_intensity"], precision
+
+
 def measure_npu_model(mxq_path, num_runs, model_gops, model_gbytes, bench_bin=None):
     """
     Runs a npu_bench binary on a single .mxq model.
@@ -226,11 +278,18 @@ def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
                     xytext=(ridge * 2.5, peak * 0.6),
                     fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
-    # --- 4. ACTUAL MODEL POINTS (금색 동그라미) ---
+    # --- 4. ACTUAL MODEL POINTS (모드별 색상, 모델별 마커) ---
+    _markers = ["o", "s", "D", "^", "v", "P", "*", "X"]
+    _seen_models = {}
     for m in npu_models:
+        base = m.get("base_name", m["name"])
+        if base not in _seen_models:
+            _seen_models[base] = _markers[len(_seen_models) % len(_markers)]
+        marker = _seen_models[base]
+        color  = m.get("color", "#FFD700")
         ax.scatter(m["ai"], m["perf"],
                    label=f"NPU: {m['name']}  ({m['perf']:.0f} GOPS)",
-                   s=250, marker="o", color="#FFD700", edgecolors="black", linewidths=1.5, zorder=15)
+                   s=250, marker=marker, color=color, edgecolors="black", linewidths=1.5, zorder=15)
 
     # --- CPU workload points (optional) ---
     if cpu_models:
@@ -273,16 +332,29 @@ if __name__ == "__main__":
     print(f"\n[RESULT] CPU: {cpu_peak:.1f} GFLOPS peak | {cpu_bw:.1f} GB/s | ridge {cpu_peak/cpu_bw:.1f} ops/B")
 
     # -----------------------------------------------------------------------
-    # NPU models to benchmark.
+    # NPU models to benchmark (via model zoo Python API).
+    # Add/remove models here. FLOPs and AI are defined in npu_bench_zoo.py.
     # -----------------------------------------------------------------------
-    npu_model_configs = [
-        {
-            "name":   "ResNet-50",
-            "mxq":    "/home/brkim/mblt-arch-bench/src/resnet50/resnet50.mxq",
-            "gops":   7.7,     # ~7.7 GOPS for ResNet-50 (224x224, int8)
-            "gbytes": 0.030,   # ~30 MB weight + activation traffic → 0.030 GB
-            "runs":   50,
-        },
+    NPU_ZOO_MODELS = [
+        # Lightweight CNNs
+        {"name": "MobileNet_V2",          "runs": 100},
+        {"name": "EfficientNet_B0",        "runs": 100},
+        # Classic CNNs
+        {"name": "ResNet50",               "runs":  50},
+        {"name": "DenseNet121",            "runs":  50},
+        {"name": "VGG16",                  "runs":  50},
+        # Modern CNNs
+        {"name": "ConvNeXt_Tiny",          "runs":  50},
+        # Transformers
+        {"name": "Swin_T",                 "runs":  50},
+        {"name": "ViT_Base_Patch16_224",   "runs":  50},
+        # Object detection
+        {"name": "YOLO11s",                "runs":  50},
+        {"name": "YOLO11l",                "runs":  30},
+        # Instance segmentation
+        {"name": "YOLO11sSeg",             "runs":  30},
+        # Pose estimation
+        {"name": "YOLO11lPose",            "runs":  30},
     ]
 
     print("\n" + "="*50)
@@ -322,18 +394,25 @@ if __name__ == "__main__":
     cpu_workloads = []
 
     print("\n" + "="*50)
-    print(" 3. Measuring Actual NPU Models")
+    print(" 3. Measuring Actual NPU Models (all modes via model zoo)")
     print("="*50)
     all_npu_points = []
-    
-    for cfg in npu_model_configs:
-        print(f"\n[Benchmarking] {cfg['name']} ...")
-        result = measure_npu_model(cfg["mxq"], cfg["runs"], cfg["gops"], cfg["gbytes"],
-                                   bench_bin=cfg.get("bench_bin"))
-        if result is not None:
-            achieved_gops, ai = result
-            all_npu_points.append({"name": cfg["name"], "perf": achieved_gops, "ai": ai})
-            print(f"  -> Added '{cfg['name']}' to plot collection.")
+
+    for mode in NPU_MODES:
+        for cfg in NPU_ZOO_MODELS:
+            print(f"\n[Benchmarking] {cfg['name']} [{mode['name']}] ...")
+            result = measure_zoo_model(cfg["name"], mode["name"], cfg["runs"])
+            if result is not None:
+                achieved_gops, ai, precision = result
+                label = f"{cfg['name']} [{mode['name']}] {precision}"
+                all_npu_points.append({
+                    "name":      label,
+                    "base_name": cfg["name"],
+                    "perf":      achieved_gops,
+                    "ai":        ai,
+                    "color":     mode["color"],
+                })
+                print(f"  -> Added '{label}' to plot.")
 
     # -----------------------------------------------------------------------
     # Plot everything together
