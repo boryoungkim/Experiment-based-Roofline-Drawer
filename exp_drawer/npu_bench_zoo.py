@@ -126,15 +126,24 @@ def benchmark(model_name: str, infer_mode: str, num_runs: int) -> None:
         eng.dispose()
         sys.exit(1)
 
+    # Multi mode processes 4 inputs per call (batch=4 per cluster).
+    # Pass a stacked (4, H, W, C) array to correctly exercise all 4 batch slots.
+    # GOPS is counted as 4×gops per call. Other modes use batch=1.
+    is_multi = (infer_mode == "multi")
+    BATCH    = 4 if is_multi else 1
+    infer_input = np.stack([dummy] * BATCH) if is_multi else dummy
+    infer_fn    = eng.model.model.infer  # bypass MBLT_Engine wrapper for batch input
+
+    print(f"[zoo] Batch size: {BATCH}", file=sys.stderr)
     print(f"[zoo] Warmup ({WARMUP_RUNS} runs) ...", file=sys.stderr)
     for _ in range(WARMUP_RUNS):
-        eng(dummy)
+        infer_fn(infer_input)
 
     print(f"[zoo] Timing ({num_runs} runs) ...", file=sys.stderr)
     latencies_ms: list[float] = []
     for _ in range(num_runs):
         t0 = time.perf_counter()
-        eng(dummy)
+        infer_fn(infer_input)
         t1 = time.perf_counter()
         latencies_ms.append((t1 - t0) * 1000.0)
 
@@ -142,7 +151,8 @@ def benchmark(model_name: str, infer_mode: str, num_runs: int) -> None:
 
     avg_ms        = sum(latencies_ms) / len(latencies_ms)
     min_ms        = min(latencies_ms)
-    achieved_gops = gops / (avg_ms / 1000.0)
+    # achieved_gops = total ops per call / call latency
+    achieved_gops = (BATCH * gops) / (avg_ms / 1000.0)
     ai            = gops / gbytes if gbytes else None
 
     print(f"avg_latency_ms       {avg_ms:.3f}")

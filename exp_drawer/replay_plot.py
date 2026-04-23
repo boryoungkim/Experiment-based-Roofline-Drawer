@@ -48,17 +48,17 @@ all_npu_points = [
     {"base_name": "YOLO11l",             "mode_name": "global8", "perf": 10158, "ai": 3401.9, "color": "#9467bd"},
     {"base_name": "YOLO11sSeg",          "mode_name": "global8", "perf":  5729, "ai": 3089.7, "color": "#9467bd"},
     {"base_name": "YOLO11lPose",         "mode_name": "global8", "perf": 10359, "ai": 3221.4, "color": "#9467bd"},
-    # multi
-    {"base_name": "MobileNet_V2",        "mode_name": "multi",   "perf":   225, "ai":   68.2, "color": "#8c564b"},
-    {"base_name": "ResNet50",            "mode_name": "multi",   "perf":  1023, "ai":  157.0, "color": "#8c564b"},
-    {"base_name": "DenseNet121",         "mode_name": "multi",   "perf":   641, "ai":  201.9, "color": "#8c564b"},
-    {"base_name": "VGG16",              "mode_name": "multi",   "perf":  2386, "ai":  223.3, "color": "#8c564b"},
-    {"base_name": "ConvNeXt_Tiny",       "mode_name": "multi",   "perf":   856, "ai":  295.9, "color": "#8c564b"},
-    {"base_name": "ViT_Base_Patch16_224","mode_name": "multi",   "perf":   491, "ai":  188.4, "color": "#8c564b"},
-    {"base_name": "YOLO11s",             "mode_name": "multi",   "perf":  1946, "ai": 2233.6, "color": "#8c564b"},
-    {"base_name": "YOLO11l",             "mode_name": "multi",   "perf":  3256, "ai": 3411.7, "color": "#8c564b"},
-    {"base_name": "YOLO11sSeg",          "mode_name": "multi",   "perf":  2441, "ai": 3098.6, "color": "#8c564b"},
-    {"base_name": "YOLO11lPose",         "mode_name": "multi",   "perf":  3366, "ai": 3230.2, "color": "#8c564b"},
+    # multi (batch=4 corrected)
+    {"base_name": "MobileNet_V2",        "mode_name": "multi",   "perf":   585, "ai":   68.2, "color": "#8c564b"},
+    {"base_name": "ResNet50",            "mode_name": "multi",   "perf":  3253, "ai":  157.0, "color": "#8c564b"},
+    {"base_name": "DenseNet121",         "mode_name": "multi",   "perf":  2223, "ai":  201.9, "color": "#8c564b"},
+    {"base_name": "VGG16",              "mode_name": "multi",   "perf":  8682, "ai":  223.3, "color": "#8c564b"},
+    {"base_name": "ConvNeXt_Tiny",       "mode_name": "multi",   "perf":  3019, "ai":  295.9, "color": "#8c564b"},
+    {"base_name": "ViT_Base_Patch16_224","mode_name": "multi",   "perf":  1894, "ai":  188.4, "color": "#8c564b"},
+    {"base_name": "YOLO11s",             "mode_name": "multi",   "perf":  5031, "ai": 2233.6, "color": "#8c564b"},
+    {"base_name": "YOLO11l",             "mode_name": "multi",   "perf": 10491, "ai": 3411.7, "color": "#8c564b"},
+    {"base_name": "YOLO11sSeg",          "mode_name": "multi",   "perf":  5982, "ai": 3098.6, "color": "#8c564b"},
+    {"base_name": "YOLO11lPose",         "mode_name": "multi",   "perf": 10695, "ai": 3230.2, "color": "#8c564b"},
 ]
 
 plot_rooflines(cpu_peak, cpu_bw, all_npu_points, cpu_models=[],

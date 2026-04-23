@@ -273,7 +273,7 @@ def plot_rooflines(cpu_peak, cpu_bw, npu_models, cpu_models=None,
     #                 fontsize=10, arrowprops=dict(arrowstyle="->", color="gray"))
 
     # --- 4. ACTUAL MODEL POINTS (모드별 색상, 모델별 마커) ---
-    _markers = ["o", "s", "D", "^", "v", "P", "*", "X"]
+    _markers = ["o", "s", "D", "^", "v", "P", "*", "X", "p", "h"]
     _model_to_marker = {}   # base_name -> marker
     _mode_to_color   = {}   # mode_name -> color
     for m in npu_models:
